@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>VibeSites AI - 3D 한국 지하철 시뮬레이션</title>
+    <style>
+        /* 기본 스타일 및 초기화 */
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden; /* 스크롤 방지 */
+            font-family: 'Segoe UI', '맑은 고딕', 'Malgun Gothic', sans-serif;
+            background-color: #1a1a1a;
+            color: #eee;
+        }
+
+        /* 모바일 가로 모드에 최적화 */
+        @media (orientation: landscape) {
+            .app-container {
+                display: flex;
+                width: 100vw;
+                height: 100vh;
+                overflow: hidden;
+            }
+
+            .scene-3d-container {
+                flex: 1; /* 왼쪽 공간 차지 */
+                position: relative;
+                perspective: 1000px; /* 3D 원근감 설정 */
+                perspective-origin: center center;
+                overflow: hidden;
+                background-color: #000;
+                background-image: radial-gradient(circle at center bottom, rgba(0,0,0,0.8) 0%, rgba(0,0,0,1) 70%), 
+                                  linear-gradient(to top, #111 0%, #000 100%);
+            }
+
+            .ui-overlay {
+                width: 30vw; /* 오른쪽 UI 공간 */
+                min-width: 280px; /* 최소 너비 확보 */
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
+                padding: 1.5vh 1.5vw;
+                background: linear-gradient(to right, #1a1a1a, #2a2a2a);
+                border-left: 1px solid #444;
+                box-shadow: -5px 0 15px rgba(0, 0, 0, 0.3);
+            }
+
+            .status-panel {
+                text-align: center;
+                margin-bottom: 2vh;
+                font-size: 1.8vh; /* 폰트 크기 조정 */
+                font-weight: bold;
+                background-color: rgba(0, 0, 0, 0.4);
+                padding: 1.5vh 1vw;
+                border-radius: 10px;
+                box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5);
+                border: 1px solid #555;
+            }
+
+            .station-name {
+                font-size: 2.5vh;
+                color: #87CEEB; /* 스카이블루 */
+                margin-bottom: 1vh;
+            }
+            .train-status {
+                font-size: 2vh;
+                color: #f0e68c; /* 카키색 */
+            }
+
+            .controls {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 1.5vh;
+                flex-grow: 1; /* 남은 공간 차지 */
+                align-content: end; /* 아래쪽으로 정렬 */
+            }
+
+            .control-button {
+                padding: 2.5vh 1vw;
+                font-size: 2.2vh;
+                font-weight: bold;
+                color: #fff;
+                background: linear-gradient(to bottom, #4CAF50, #2E8B57); /* 녹색 계열 */
+                border: none;
+                border-radius: 12px;
+                cursor: pointer;
+                transition: transform 0.1s ease, background 0.2s ease, box-shadow 0.2s ease;
+                box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3), inset 0 2px 5px rgba(255, 255, 255, 0.2);
+                -webkit-appearance: none; /* iOS 기본 버튼 스타일 제거 */
+            }
+
+            .control-button:hover:not(:disabled) {
+                transform: translateY(-2px);
+                background: linear-gradient(to bottom, #5cb85c, #3e984f);
+                box-shadow: 0 7px 20px rgba(0, 0, 0, 0.4), inset 0 2px 5px rgba(255, 255, 255, 0.3);
+            }
+
+            .control-button:active:not(:disabled) {
+                transform: translateY(1px);
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2), inset 0 1px 3px rgba(0, 0, 0, 0.3);
+            }
+
+            .control-button:disabled {
+                background: linear-gradient(to bottom, #888, #555);
+                color: #ccc;
+                cursor: not-allowed;
+                box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.3);
+            }
+
+            /* 출발 버튼 색상 */
+            #startButton { background: linear-gradient(to bottom, #4CAF50, #2E8B57); }
+            #startButton:hover:not(:disabled) { background: linear-gradient(to bottom, #5cb85c, #3e984f); }
+            /* 정차 버튼 색상 */
+            #stopButton { background: linear-gradient(to bottom, #f44336, #d32f2f); }
+            #stopButton:hover:not(:disabled) { background: linear-gradient(to bottom, #ef5350, #e53935); }
+            /* 문 열기 버튼 색상 */
+            #openDoorsButton { background: linear-gradient(to bottom, #2196F3, #1976D2); }
+            #openDoorsButton:hover:not(:disabled) { background: linear-gradient(to bottom, #42a5f5, #2196f3); }
+            /* 문 닫기 버튼 색상 */
+            #closeDoorsButton { background: linear-gradient(to bottom, #FFC107, #FFA000); }
+            #closeDoorsButton:hover:not(:disabled) { background: linear-gradient(to bottom, #ffca28, #ffc107); }
+
+
+            /* 3D 지하철 씬 */
+            .train {
+                position: absolute;
+                top: 55%; /* 살짝 아래로 */
+                left: 50%;
+                transform: translate(-50%, -50%) translateZ(0px); /* 3D 공간의 기준점 */
+                transform-style: preserve-3d;
+                width: 60vw; /* 열차 너비 */
+                height: 25vh; /* 열차 높이 */
+                min-width: 400px;
+                min-height: 150px;
+                z-index: 10;
+            }
+
+            .train-car {
+                position: absolute;
+                width: 30%; /* 칸당 너비 */
+                height: 100%;
+                background: linear-gradient(to bottom, #b0c4de, #6a8ba6); /* 열차 몸체 색상 - 연한 하늘색 계열 */
+                border: 2px solid #333;
+                border-radius: 8px;
+                transform-style: preserve-3d;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 0 10px rgba(255, 255, 255, 0.3);
+                /* Add a subtle metallic sheen */
+                background-image: 
+                    linear-gradient(to right, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 50%, rgba(255,255,255,0.1) 100%),
+                    linear-gradient(to bottom, #b0c4de, #6a8ba6);
+            }
+
+            .train-car.front { left: 0; transform: translateZ(0px); }
+            .train-car.middle { left: 35%; transform: translateZ(-20px); } /* 약간 뒤로 배치하여 깊이감 */
+            .train-car.rear { left: 70%; transform: translateZ(-40px); }
+
+            .window {
+                position: absolute;
+                top: 15%;
+                width: 60%;
+                height: 40%;
+                background: linear-gradient(to bottom, #add8e6, #87ceeb); /* 창문 색상 - 하늘색 */
+                border: 2px solid #555;
+                border-radius: 5px;
+                box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.4);
+                left: 20%;
+                z-index: 1;
+            }
+
+            .door {
+                position: absolute;
+                top: 10%;
+                width: 18%; /* 문 한짝 너비 */
+                height: 80%;
+                background: linear-gradient(to bottom, #a9a9a9, #778899); /* 문 색상 - 회색 */
+                border: 1px solid #444;
+                border-radius: 3px;
+                transition: transform 0.5s ease-out;
+                z-index: 2;
+                box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.3);
+            }
+
+            .door.left-door { left: 0; transform-origin: left center; }
+            .door.right-door { right: 0; transform-origin: right center; }
+
+            .door.open.left-door { transform: translateX(-100%); }
+            .door.open.right-door { transform: translateX(100%); }
+
+            /* 터널 및 트랙 */
+            .train-tunnel {
+                position: absolute;
+                width: 100%; /* 뷰포트 너비 */
+                height: 100vh;
+                top: 0;
+                left: 0;
+                transform-style: preserve-3d;
+                transform: translateZ(-200px); /* 열차 뒤에 배치 */
+            }
+
+            .tunnel-wall {
+                position: absolute;
+                width: 100vw;
+                height: 100%;
+                background-color: #333;
+                background-image: linear-gradient(to bottom, #444, #222);
+                box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.6);
+            }
+            .tunnel-wall.left {
+                left: 0;
+                transform: rotateY(90deg) translateZ(calc(100vw / 2)) translateY(-25%) rotateX(-10deg);
+                transform-origin: left center;
+                height: 150%; /* 더 높게 */
+            }
+            .tunnel-wall.right {
+                right: 0;
+                transform: rotateY(-90deg) translateZ(calc(100vw / 2)) translateY(-25%) rotateX(10deg);
+                transform-origin: right center;
+                height: 150%; /* 더 높게 */
+            }
+
+
+            .tunnel-track {
+                position: absolute;
+                width: 100%;
+                height: 10vh;
+                background-color: #555;
+                background-image:
+                    linear-gradient(90deg, transparent 49%, rgba(255,255,255,0.2) 49%, rgba(255,255,255,0.2) 51%, transparent 51%), /* 중앙 레일 라인 */
+                    repeating-linear-gradient(0deg, #666, #666 5px, transparent 5px, transparent 15px); /* 침목 효과 */
+                background-size: 100% 100%, 100% 20px;
+                background-position: center bottom, center bottom;
+                bottom: 0;
+                transform: rotateX(80deg) translateZ(-50px);
+                transform-origin: bottom center;
+                box-shadow: inset 0 5px 15px rgba(0, 0, 0, 0.5);
+            }
+
+            /* 애니메이션 정의 */
+            @keyframes tunnelScrollTrack {
+                from { background-position-x: 0; }
+                to { background-position-x: -200vw; } /* 넓게 설정하여 반복 */
+            }
+            @keyframes tunnelScrollWall {
+                from { background-position-x: 0; }
+                to { background-position-x: -300px; } /* 벽면 기둥 간격 */
+            }
+
+
+            .train-tunnel.moving .tunnel-track {
+                animation: tunnelScrollTrack 1s linear infinite; /* 속도 조절 가능 */
+                background-image:
+                    linear-gradient(90deg, transparent 49%, rgba(255,255,255,0.2) 49%, rgba(255,255,255,0.2) 51%, transparent 51%), /* 중앙 레일 라인 */
+                    repeating-linear-gradient(0deg, #666, #666 5px, transparent 5px, transparent 30px); /* 침목 효과 */
+            }
+            .train-tunnel.moving .tunnel-wall {
+                animation: tunnelScrollWall 0.8s linear infinite; /* 벽은 트랙보다 느리게 */
+                background-image:
+                    linear-gradient(to right, rgba(0,0,0,0) 0%, rgba(0,0,0,0.2) 10%, rgba(0,0,0,0.2) 20%, rgba(0,0,0,0) 30%), /* 기둥 효과 */
+                    linear-gradient(to bottom, #444, #222);
+                background-size: 100px 100%, 100% 100%; /* 기둥 크기 */
+                background-repeat: repeat-x, no-repeat;
+                background-position-x: 0, 0;
+            }
+
+            /* 비-가로 모드에서는 경고 메시지 표시 */
+            @media (orientation: portrait) {
+                body {
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    text-align: center;
+                    background-color: #333;
+                }
+                .app-container {
+                    display: none; /* 앱 컨텐츠 숨기기 */
+                }
+                .portrait-warning {
+                    display: block;
+                    font-size: 5vw;
+                    color: #FFD700;
+                    padding: 5vw;
+                    border: 2px solid #FFD700;
+                    border-radius: 10px;
+                    max-width: 80vw;
+                    line-height: 1.5;
+                }
+            }
+            @media (orientation: landscape) {
+                .portrait-warning {
+                    display: none;
+                }
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="portrait-warning">
+        더 나은 경험을 위해 기기를 가로 모드로 전환해주세요.
+        <br>
+        (Please switch your device to landscape mode for a better experience.)
+    </div>
+    <div class="app-container">
+        <div class="scene-3d-container">
+            <div class="train-tunnel" id="trainTunnel">
+                <div class="tunnel-wall left"></div>
+                <div class="tunnel-wall right"></div>
+                <div class="tunnel-track"></div>
+            </div>
+            <div class="train">
+                <div class="train-car front">
+                    <div class="window front-window"></div>
+                    <div class="door left-door"></div>
+                    <div class="door right-door"></div>
+                </div>
+                <div class="train-car middle">
+                    <div class="window"></div>
+                    <div class="door left-door"></div>
+                    <div class="door right-door"></div>
+                </div>
+                <div class="train-car rear">
+                    <div class="window rear-window"></div>
+                    <div class="door left-door"></div>
+                    <div class="door right-door"></div>
+                </div>
+            </div>
+        </div>
+        <div class="ui-overlay">
+            <div class="status-panel">
+                <div class="station-name" id="stationName">현재역: 서울역 (Seoul Station)</div>
+                <div class="train-status" id="trainStatus">정차 중</div>
+            </div>
+            <div class="controls">
+                <button id="startButton" class="control-button">출발</button>
+                <button id="stopButton" class="control-button" disabled>정차</button>
+                <button id="openDoorsButton" class="control-button" disabled>문 열기</button>
+                <button id="closeDoorsButton" class="control-button" disabled>문 닫기</button>
+            </div>
+        </div>
+    </div>
+    <script>
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const openDoorsButton = document.getElementById('openDoorsButton');
+        const closeDoorsButton = document.getElementById('closeDoorsButton');
+        const stationNameDisplay = document.getElementById('stationName');
+        const trainStatusDisplay = document.getElementById('trainStatus');
+        const trainTunnel = document.getElementById('trainTunnel');
+        const doors = document.querySelectorAll('.door');
+
+        const stations = [
+            "서울역 (Seoul Station)",
+            "시청 (City Hall)",
+            "종각 (Jonggak)",
+            "을지로입구 (Euljiro 1(il)-ga)",
+            "을지로3가 (Euljiro 3(sam)-ga)",
+            "동대문역사문화공원 (Dongdaemun History & Culture Park)",
+            "신당 (Sindang)",
+            "상왕십리 (Sangwangsimni)",
+            "왕십리 (Wangsimni)",
+            "한양대 (Hanyang University)"
+        ];
+
+        let currentStationIndex = 0;
+        let isMoving = false;
+        let doorsOpen = false;
+        let travelTimer = null;
+        let stationStopTimer = null;
+
+        function updateUI() {
+            stationNameDisplay.textContent = `현재역: ${stations[currentStationIndex]}`;
+            if (isMoving) {
+                trainStatusDisplay.textContent = '운행 중...';
+                trainStatusDisplay.style.color = '#90ee90'; /* 연한 녹색 */
+                startButton.disabled = true;
+                stopButton.disabled = false;
+                openDoorsButton.disabled = true;
+                closeDoorsButton.disabled = true;
+            } else {
+                trainStatusDisplay.textContent = doorsOpen ? '문 열림' : '정차 중';
+                trainStatusDisplay.style.color = doorsOpen ? '#ffa500' : '#f0e68c'; /* 주황색 / 카키색 */
+                startButton.disabled = false;
+                stopButton.disabled = true;
+                openDoorsButton.disabled = !doorsOpen;
+                closeDoorsButton.disabled = doorsOpen;
+            }
+        }
+
+        function toggleDoors(open) {
+            doorsOpen = open;
+            doors.forEach(door => {
+                if (open) {
+                    door.classList.add('open');
+                } else {
+                    door.classList.remove('open');
+                }
+            });
+            updateUI();
+        }
+
+        function startTrain() {
+            if (doorsOpen) {
+                // Use a more integrated notification if possible, but alert for simplicity within constraints.
+                alert('문을 먼저 닫아주세요!');
+                return;
+            }
+            if (isMoving) return;
+
+            isMoving = true;
+            trainTunnel.classList.add('moving');
+            updateUI();
+
+            const nextStationIndex = (currentStationIndex + 1) % stations.length;
+            // Simulate travel time (e.g., 5 seconds)
+            travelTimer = setTimeout(() => {
+                stopTrainAtStation(nextStationIndex);
+            }, 5000); // 5초 후 다음 역 도착
+        }
+
+        function stopTrainAtStation(stationIdx) {
+            clearTimeout(travelTimer);
+            isMoving = false;
+            currentStationIndex = stationIdx;
+            trainTunnel.classList.remove('moving');
+            updateUI();
+
+            // Simulate station stop time (e.g., 3 seconds before doors open automatically)
+            stationStopTimer = setTimeout(() => {
+                toggleDoors(true); // 도착 후 자동 문 열림
+                // Simulate door close after 4 seconds
+                setTimeout(() => {
+                    toggleDoors(false);
+                }, 4000);
+            }, 3000);
+        }
+
+        startButton.addEventListener('click', startTrain);
+        stopButton.addEventListener('click', () => {
+            if (!isMoving) return;
+            // Manual stop, will arrive at current station or next very quickly
+            clearTimeout(travelTimer);
+            stopTrainAtStation(currentStationIndex);
+        });
+        openDoorsButton.addEventListener('click', () => toggleDoors(true));
+        closeDoorsButton.addEventListener('click', () => toggleDoors(false));
+
+        // 초기 상태 설정
+        updateUI();
+
+        // 뷰포트 변경 감지하여 가로 모드 경고 메시지 토글
+        window.addEventListener('resize', () => {
+            const warning = document.querySelector('.portrait-warning');
+            const app = document.querySelector('.app-container');
+            if (window.innerHeight > window.innerWidth) { // 세로 모드
+                warning.style.display = 'flex';
+                app.style.display = 'none';
+            } else { // 가로 모드
+                warning.style.display = 'flex'; /* 기본으로 flex, 이후 none으로 숨김 */
+                app.style.display = 'flex';
+                // Check if the warning is actually needed (e.g. if landscape is explicitly enforced by CSS)
+                if (window.matchMedia("(orientation: landscape)").matches) {
+                    warning.style.display = 'none';
+                }
+            }
+        });
+        // 페이지 로드 시 한 번 실행
+        window.dispatchEvent(new Event('resize'));
+    </script>
+</body>
+</html>
